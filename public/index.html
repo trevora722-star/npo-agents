@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Event Coordination Agent</title>
+  <style>
+    :root { --ink:#1d2730; --muted:#5b6774; --line:#dfe5ec; --bg:#f7f9fb; --card:#fff; --brand:#1f5f8b; --brand-ink:#fff; --ok:#1e7b4a; --warn:#9a5b00; --bad:#a12a2a; }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ink:#e7edf3; --muted:#9aa8b6; --line:#2c3945; --bg:#111820; --card:#18222c; --brand:#6fb1de; --brand-ink:#0b1620; --ok:#5cc286; --warn:#e8b35a; --bad:#ef7d7d; } }
+    * { box-sizing: border-box; }
+    body { margin:0; font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--ink); background:var(--bg); }
+    header { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; padding:12px 20px; background:var(--card); border-bottom:1px solid var(--line); }
+    header h1 { font-size:16px; margin:0; }
+    main { max-width:1120px; margin:0 auto; padding:18px 16px 48px; }
+    .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:14px; }
+    .grid { display:grid; gap:16px; grid-template-columns:minmax(0,1fr); }
+    @media (min-width:900px) { .grid { grid-template-columns:minmax(0,1fr) minmax(0,1.2fr); } }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; min-width:0; }
+    .card h2 { font-size:15px; margin:0 0 10px; }
+    button { font:inherit; border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:8px; padding:7px 12px; cursor:pointer; min-height:36px; }
+    button.primary { background:var(--brand); color:var(--brand-ink); border-color:var(--brand); }
+    button.active { border-color:var(--brand); color:var(--brand); }
+    button:disabled { opacity:.5; cursor:default; }
+    input, textarea, select { font:inherit; width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink); margin-top:4px; }
+    label { display:block; font-size:13px; color:var(--muted); margin-bottom:8px; }
+    .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .item { border-top:1px solid var(--line); padding:12px 0; }
+    .item:first-of-type { border-top:0; padding-top:0; }
+    .muted { color:var(--muted); font-size:13px; }
+    .badge { display:inline-block; font-size:12px; border:1px solid currentColor; border-radius:999px; padding:1px 8px; }
+    .proposed, .pending { color:var(--warn); } .confirmed, .approved, .sent { color:var(--ok); } .rejected { color:var(--bad); }
+    table { width:100%; border-collapse:collapse; }
+    th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; overflow-wrap:anywhere; }
+    th { font-size:12px; color:var(--muted); text-transform:uppercase; }
+    tr.row { cursor:pointer; } tr.row:hover td, tr.row.sel td { background:rgba(127,127,127,.08); }
+    .body { white-space:pre-wrap; border:1px solid var(--line); border-radius:8px; padding:12px; background:var(--bg); font-size:14px; }
+    .notice { border-radius:8px; padding:10px 12px; margin-top:10px; background:rgba(127,127,127,.1); }
+    .notice.error { color:var(--bad); } .notice.ok { color:var(--ok); }
+    .box { border:1px solid var(--line); border-radius:8px; padding:12px; margin-top:12px; }
+    details summary { cursor:pointer; color:var(--brand); font-weight:600; margin-bottom:8px; }
+    .table-wrap { overflow-x:auto; }
+    .signin { max-width:420px; margin:60px auto; text-align:center; }
+    .signin p { color:var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Event Coordination Agent</h1>
+    <div id="who" class="muted"></div>
+    <a href="/agents.html" style="color:var(--brand);font-size:14px">All agents</a>
+  </header>
+  <main id="app"><p class="muted">Loading…</p></main>
+
+  <script>
+    const S = { me: null, config: null, org: null, events: [], drafts: [], audiences: null, audit: [], tab: "work", sel: null, notice: null, busy: false };
+    const $ = (q) => document.querySelector(q);
+    const TYPE = { reminder: "Reminder", followup: "Follow-up", social: "Social post" };
+
+    async function api(path, opts = {}) {
+      const res = await fetch(path, {
+        method: opts.method || "GET",
+        headers: opts.body ? { "content-type": "application/json" } : {},
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+        credentials: "same-origin",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      return data;
+    }
+
+    function el(tag, attrs = {}, ...kids) {
+      const n = document.createElement(tag);
+      for (const [k, v] of Object.entries(attrs)) {
+        if (v === null || v === undefined || v === false) continue;
+        if (k === "class") n.className = v;
+        else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+        else n.setAttribute(k, v === true ? "" : String(v));
+      }
+      for (const c of kids.flat()) {
+        if (c === null || c === undefined || c === false) continue;
+        n.append(c instanceof Node ? c : document.createTextNode(String(c)));
+      }
+      return n;
+    }
+
+    function notice(text, kind) { S.notice = { text, kind }; render(); }
+
+    async function run(fn, okText) {
+      try {
+        const out = await fn();
+        if (okText) S.notice = { text: okText, kind: "ok" };
+        await loadAll();
+        return out;
+      } catch (err) {
+        S.notice = { text: err.message, kind: "error" };
+        render();
+      }
+    }
+
+    async function boot() {
+      S.config = await api("/api/config");
+      S.me = (await api("/api/me")).user;
+      if (!S.me) return renderSignIn();
+      await loadAll();
+    }
+
+    async function loadAll() {
+      if (!S.me) return renderSignIn();
+      const [org, events, drafts, audiences] = await Promise.all([
+        api("/api/org"), api("/api/events"), api("/api/drafts"), api("/api/audiences"),
+      ]);
+      S.org = org; S.events = events; S.drafts = drafts; S.audiences = audiences;
+      if (S.me.role === "approver") S.audit = await api("/api/audit");
+      render();
+    }
+
+    function renderSignIn() {
+      $("#who").replaceChildren();
+      $("#app").replaceChildren(el("section", { class: "signin" },
+        el("h2", {}, "Sign in"),
+        el("p", {}, "Demo mode: sample organization, nothing is sent to real people."),
+        el("div", { class: "actions", style: "justify-content:center" },
+          el("button", { class: "primary", onclick: () => demoIn("drafter") }, "Drafter (demo)"),
+          el("button", { class: "primary", onclick: () => demoIn("approver") }, "Approver (demo)"))));
+    }
+
+    async function demoIn(role) {
+      S.me = (await api("/auth/demo", { method: "POST", body: { role } })).user;
+      await loadAll();
+    }
+
+    async function signOut() {
+      await api("/auth/logout", { method: "POST" });
+      S.me = null; S.sel = null; S.notice = null;
+      renderSignIn();
+    }
+
+    function render() {
+      if (!S.me) return renderSignIn();
+      const approver = S.me.role === "approver";
+      $("#who").replaceChildren(`${S.org.name} · ${approver ? "Approver" : "Drafter"} · `, el("button", { onclick: signOut }, "Sign out"));
+      const tabs = ["work", "settings"].concat(approver ? ["audit"] : []);
+      const labels = { work: "Events and drafts", settings: "Organization", audit: "Audit log" };
+      const tabBar = el("div", { class: "tabs" }, tabs.map((t) =>
+        el("button", { class: S.tab === t ? "active" : "", onclick: () => { S.tab = t; render(); } }, labels[t])));
+      let body;
+      if (S.tab === "settings") body = settingsView(approver);
+      else if (S.tab === "audit") body = auditView();
+      else body = workView(approver);
+      const notice = S.notice ? el("div", { class: `notice ${S.notice.kind}` }, S.notice.text) : null;
+      $("#app").replaceChildren(...[tabBar, notice, body].filter(Boolean));
+    }
+
+    function workView(approver) {
+      return el("div", { class: "grid" },
+        el("div", { class: "card" }, eventsCard(approver), socialCard(approver)),
+        el("div", { class: "card" }, queueCard(), reviewCard(approver)));
+    }
+
+    function eventsCard(approver) {
+      return el("div", {},
+        el("h2", {}, "Events"),
+        el("details", {}, el("summary", {}, "Import from newsletter text"),
+          el("textarea", { id: "import-text", rows: "5", placeholder: "Paste the events section here" }),
+          el("div", { class: "actions" }, el("button", { onclick: importEvents }, "Find events"))),
+        el("details", {}, el("summary", {}, "Add an event"), eventForm()),
+        S.events.length === 0 ? el("p", { class: "muted" }, "No events yet.") : null,
+        S.events.map((ev) => el("div", { class: "item" },
+          el("strong", {}, ev.name),
+          " ", el("span", { class: `badge ${ev.status}` }, ev.status === "confirmed" ? "confirmed" : "needs confirmation"),
+          el("div", { class: "muted" }, `${ev.date} · ${ev.time || "time TBC"} · ${ev.location || "location TBC"}`),
+          el("div", { class: "muted" }, `Email list: ${ev.audienceList || "not chosen"}`),
+          el("div", { class: "actions" },
+            ["reminder", "followup", "social"].map((t) => el("button", {
+              disabled: ev.status !== "confirmed" || S.busy ? true : null,
+              onclick: () => makeDraft(ev.id, t),
+            }, `Draft ${TYPE[t].toLowerCase()}`)),
+            approver && ev.status !== "confirmed" ? el("button", { class: "primary", onclick: () => confirmEvent(ev.id) }, "Confirm") : null,
+            approver ? el("button", { onclick: () => removeEvent(ev) }, "Delete") : null))));
+    }
+
+    const EVENT_FIELDS = [["name", "Event name", true], ["date", "Date (YYYY-MM-DD)", true], ["time", "Time"], ["format", "Format"],
+      ["location", "Location"], ["audience", "Audience"], ["audienceList", "Email audience list"], ["details", "Details"],
+      ["registrationLink", "Registration link"], ["contact", "Contact"]];
+
+    function eventForm() {
+      const form = el("form", {});
+      for (const [field, label, required] of EVENT_FIELDS) {
+        form.append(el("label", {}, label, field === "details"
+          ? el("textarea", { name: field, rows: "2" })
+          : el("input", { type: "text", name: field, required: required || null })));
+      }
+      form.append(el("div", { class: "actions" }, el("button", { type: "submit", class: "primary" }, "Save as proposed")));
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        run(() => api("/api/events", { method: "POST", body: Object.fromEntries(new FormData(form)) }), "Saved. An approver must confirm it before drafts are made.");
+      });
+      return form;
+    }
+
+    function socialCard(approver) {
+      const connected = S.audiences.connected;
+      return el("div", { class: "box" },
+        el("strong", {}, "Social accounts"),
+        el("div", { class: "muted" }, S.audiences.simulated ? "Simulated: no real account is used." : "Connected accounts are used for posting."),
+        el("div", { class: "actions" }, S.audiences.channels.map((c) => el("button", {
+          disabled: approver ? null : true,
+          onclick: () => run(() => api("/api/social/connect", { method: "POST", body: { channel: c } }), `${c} ${connected.includes(c) ? "disconnected" : "connected"}.`),
+        }, `${connected.includes(c) ? "Disconnect" : "Connect"} ${c}`))));
+    }
+
+    function queueCard() {
+      return el("div", {},
+        el("h2", {}, "Draft queue"),
+        S.drafts.length === 0 ? el("p", { class: "muted" }, "No drafts yet.") : el("div", { class: "table-wrap" }, el("table", {},
+          el("thead", {}, el("tr", {}, el("th", {}, "Draft"), el("th", {}, "Type"), el("th", {}, "Status"))),
+          el("tbody", {}, S.drafts.map((d) => el("tr", {
+            class: `row${S.sel === d.id ? " sel" : ""}`,
+            onclick: () => { S.sel = d.id; render(); },
+          }, el("td", {}, d.subject), el("td", {}, TYPE[d.type]), el("td", {}, el("span", { class: `badge ${d.status}` }, d.status))))))));
+    }
+
+    function reviewCard(approver) {
+      const d = S.drafts.find((x) => x.id === S.sel);
+      if (!d) return el("div", { class: "box" }, el("strong", {}, "Review"), el("p", { class: "muted" }, "Select a draft to read it."));
+      const ev = S.events.find((e) => e.id === d.eventId);
+      return el("div", { class: "box" },
+        el("strong", {}, "Review"),
+        el("h3", { style: "margin:8px 0 2px" }, d.subject),
+        el("div", { class: "muted" }, `${TYPE[d.type]} for ${ev ? ev.name : "event"} · ${d.status}${d.createdBy ? ` · by ${d.createdBy}` : ""}`),
+        el("div", { class: "body", style: "margin-top:8px" }, d.body),
+        d.unverified && d.unverified.length ? el("div", { class: "notice" }, el("strong", {}, "Confirm before approving"),
+          el("ul", {}, d.unverified.map((u) => el("li", {}, u)))) : null,
+        d.reviewerNote ? el("div", { class: "muted" }, `Reviewer note: ${d.reviewerNote}`) : null,
+        d.sendResult ? sentView(d) : null,
+        approver && d.status === "pending" ? editor(d) : null,
+        approver && d.status === "pending" ? noteInput() : null,
+        approver && d.status === "pending" ? el("div", { class: "actions" },
+          el("button", { class: "primary", onclick: () => reviewAction(d.id, "approve") }, "Approve"),
+          el("button", { onclick: () => reviewAction(d.id, "reject") }, "Reject")) : null,
+        approver && d.status === "approved" ? sendControls(d) : null,
+        el("div", { class: "muted", style: "margin-top:10px" }, "Approving does not send. Sending needs a list, the word SEND, and a second click."));
+    }
+
+    function noteInput() { return el("label", { style: "margin-top:10px" }, "Reviewer note (optional)", el("input", { type: "text", id: "note", maxlength: "500" })); }
+
+    function editor(d) {
+      return el("details", { style: "margin-top:10px" },
+        el("summary", {}, "Edit before approving (fill in any [PLACEHOLDER])"),
+        el("label", {}, "Subject", el("input", { type: "text", id: "edit-subject", value: d.subject })),
+        el("label", {}, "Body", el("textarea", { id: "edit-body", rows: "8" }, d.body)),
+        el("div", { class: "actions" }, el("button", { onclick: () => run(() => api(`/api/drafts/${d.id}`, { method: "PUT", body: { subject: $("#edit-subject").value, body: $("#edit-body").value } }), "Changes saved.") }, "Save changes")));
+    }
+
+    function sentView(d) {
+      const r = d.sendResult;
+      const text = r.channel
+        ? `Posted to ${r.channel}${r.simulated ? " (simulated)" : ""}.`
+        : `Sent to "${r.audience}"${r.simulated ? " (simulated, nothing was emailed)" : ""}.`;
+      return el("div", { class: "notice ok" }, el("strong", {}, "Sent"), el("div", {}, text), el("div", { class: "muted" }, `by ${r.by}`));
+    }
+
+    function sendControls(d) {
+      const isSocial = d.type === "social";
+      const pick = isSocial
+        ? el("select", { id: "pick" }, S.audiences.channels.map((c) => el("option", { value: c, disabled: S.audiences.connected.includes(c) ? null : true }, `${c}${S.audiences.connected.includes(c) ? "" : " (not connected)"}`)))
+        : el("select", { id: "pick" }, (S.audiences.audiences || []).map((a) => el("option", { value: a.name }, `${a.name} (${a.recipients} people)`)));
+      const confirmBox = el("input", { type: "text", id: "confirm-word", placeholder: "Type SEND to confirm", autocomplete: "off" });
+      return el("div", { class: "box" },
+        el("strong", {}, isSocial ? "Post this update" : "Send this email"),
+        el("label", { style: "margin-top:8px" }, isSocial ? "Channel" : "Audience list", pick),
+        el("label", {}, "Confirm", confirmBox),
+        el("div", { class: "actions" }, el("button", { class: "primary", onclick: () => sendNow(d, isSocial) },
+          isSocial ? "Post" : "Send to list")),
+        S.audiences.connectionError && !isSocial ? el("div", { class: "notice error" }, S.audiences.connectionError) : null,
+        S.audiences.simulated ? el("div", { class: "muted" }, "Simulated provider: nothing leaves the app.") : null);
+    }
+
+    function sendNow(d, isSocial) {
+      const word = $("#confirm-word").value;
+      const pick = $("#pick").value;
+      if (isSocial) run(() => api(`/api/drafts/${d.id}/post-social`, { method: "POST", body: { channel: pick, confirm: word } }), `Posted to ${pick}.`);
+      else run(() => api(`/api/drafts/${d.id}/send`, { method: "POST", body: { audience: pick, confirm: word } }), "Sent.");
+    }
+
+    async function reviewAction(id, action) {
+      const note = $("#note") ? $("#note").value : "";
+      run(() => api(`/api/drafts/${id}/${action}`, { method: "POST", body: { note } }), action === "approve" ? "Approved. Nothing was sent." : "Rejected.");
+    }
+
+    async function makeDraft(eventId, type) {
+      S.busy = true; render();
+      try {
+        const d = await api("/api/drafts", { method: "POST", body: { eventId, type } });
+        S.sel = d.id;
+        S.notice = { text: "Draft created. Review it before approving.", kind: "ok" };
+        await loadAll();
+      } catch (err) {
+        S.notice = { text: err.message, kind: "error" };
+      } finally {
+        S.busy = false;
+        render();
+      }
+    }
+
+    async function importEvents() {
+      try {
+        const r = await api("/api/events/import", { method: "POST", body: { text: $("#import-text").value } });
+        await loadAll();
+        notice(`Found ${r.added.length} event(s) for confirmation${r.skipped ? `; skipped ${r.skipped} with no usable date` : ""}.`, "ok");
+      } catch (err) {
+        notice(err.message, "error");
+      }
+    }
+
+    function confirmEvent(id) { run(() => api(`/api/events/${id}/confirm`, { method: "POST" }), "Event confirmed. Drafts can now be made."); }
+    function removeEvent(ev) { if (confirm(`Delete "${ev.name}"?`)) run(() => api(`/api/events/${ev.id}`, { method: "DELETE" }), "Event deleted."); }
+
+    function settingsView(approver) {
+      return el("div", { class: "card" },
+        el("h2", {}, "Organization"),
+        el("label", {}, "Organization name", el("input", { type: "text", id: "org-name", value: S.org.name, disabled: approver ? null : true })),
+        el("label", {}, "Support line (added to drafts, if set)", el("input", { type: "text", id: "org-support", value: S.org.supportLine || "", disabled: approver ? null : true })),
+        approver ? el("div", { class: "actions" }, el("button", { class: "primary", onclick: () => run(() => api("/api/org", { method: "PUT", body: { name: $("#org-name").value, supportLine: $("#org-support").value } }), "Saved.") }, "Save")) : el("p", { class: "muted" }, "Only approvers can change these settings."));
+    }
+
+    function auditView() {
+      return el("div", { class: "card" },
+        el("h2", {}, "Audit log (latest 200)"),
+        S.audit.length === 0 ? el("p", { class: "muted" }, "Nothing recorded yet.") : el("div", { class: "table-wrap" }, el("table", {},
+          el("thead", {}, el("tr", {}, el("th", {}, "When"), el("th", {}, "Who"), el("th", {}, "What"), el("th", {}, "Details"))),
+          el("tbody", {}, S.audit.map((a) => el("tr", {}, el("td", {}, new Date(a.createdAt).toLocaleString()), el("td", {}, a.actorEmail), el("td", {}, a.action), el("td", {}, JSON.stringify(a.details))))))));
+    }
+
+    boot().catch((err) => { $("#app").replaceChildren(el("p", { class: "notice error" }, err.message)); });
+  </script>
+</body>
+</html>

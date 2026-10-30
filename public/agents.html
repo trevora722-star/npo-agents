@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nonprofit agents</title>
+  <style>
+    :root { --ink:#1d2730; --muted:#5b6774; --line:#dfe5ec; --bg:#f7f9fb; --card:#fff; --brand:#1f5f8b; --brand-ink:#fff; --ok:#1e7b4a; --warn:#9a5b00; --bad:#a12a2a; }
+    @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ink:#e7edf3; --muted:#9aa8b6; --line:#2c3945; --bg:#111820; --card:#18222c; --brand:#6fb1de; --brand-ink:#0b1620; --ok:#5cc286; --warn:#e8b35a; --bad:#ef7d7d; } }
+    * { box-sizing:border-box; }
+    body { margin:0; font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; color:var(--ink); background:var(--bg); }
+    header { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; padding:12px 20px; background:var(--card); border-bottom:1px solid var(--line); }
+    header h1 { font-size:16px; margin:0; } header a { color:var(--brand); }
+    .layout { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; max-width:1200px; margin:0 auto; padding:16px; }
+    @media (min-width:900px) { .layout { grid-template-columns:260px minmax(0,1fr); } }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; min-width:0; }
+    .card h2 { font-size:15px; margin:0 0 10px; }
+    .agent-btn { display:block; width:100%; text-align:left; margin-bottom:6px; }
+    button { font:inherit; border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:8px; padding:7px 12px; cursor:pointer; min-height:36px; }
+    button.primary { background:var(--brand); color:var(--brand-ink); border-color:var(--brand); }
+    button.active { border-color:var(--brand); color:var(--brand); font-weight:600; }
+    button:disabled { opacity:.5; cursor:default; }
+    input, textarea, select { font:inherit; width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--ink); margin-top:4px; }
+    label { display:block; font-size:13px; color:var(--muted); margin-bottom:8px; }
+    .tabs { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+    .actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .muted { color:var(--muted); font-size:13px; }
+    .badge { display:inline-block; font-size:12px; border:1px solid currentColor; border-radius:999px; padding:1px 8px; }
+    .pending { color:var(--warn); } .approved, .done { color:var(--ok); } .rejected { color:var(--bad); }
+    table { width:100%; border-collapse:collapse; } .table-wrap { overflow-x:auto; }
+    th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--line); vertical-align:top; overflow-wrap:anywhere; }
+    th { font-size:12px; color:var(--muted); text-transform:uppercase; }
+    tr.row { cursor:pointer; } tr.row:hover td, tr.row.sel td { background:rgba(127,127,127,.08); }
+    .section { border-top:1px solid var(--line); padding-top:12px; margin-top:12px; }
+    .section h3 { font-size:14px; margin:0 0 6px; }
+    .row-item { border-top:1px solid var(--line); padding:8px 0; }
+    .row-item:first-of-type { border-top:0; }
+    .body { white-space:pre-wrap; border:1px solid var(--line); border-radius:8px; padding:12px; background:var(--bg); font-size:14px; }
+    .notice { border-radius:8px; padding:10px 12px; margin:10px 0; background:rgba(127,127,127,.1); }
+    .notice.error { color:var(--bad); } .notice.ok { color:var(--ok); }
+    .box { border:1px solid var(--line); border-radius:8px; padding:12px; margin-top:12px; }
+    details summary { cursor:pointer; color:var(--brand); font-weight:600; margin-bottom:8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Nonprofit agents</h1>
+    <div id="who" class="muted"></div>
+  </header>
+  <div class="layout">
+    <aside class="card" id="side"><p class="muted">Loading…</p></aside>
+    <main class="card" id="main"></main>
+  </div>
+
+  <script>
+    const S = { me: null, agents: [], agent: null, tab: "summary", summary: null, records: [], items: [], selItem: null, selRecord: null, notice: null, type: null };
+    const $ = (q) => document.querySelector(q);
+
+    async function api(path, opts = {}) {
+      const res = await fetch(path, {
+        method: opts.method || "GET",
+        headers: opts.body ? { "content-type": "application/json" } : {},
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+        credentials: "same-origin",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+      return data;
+    }
+
+    function el(tag, attrs = {}, ...kids) {
+      const n = document.createElement(tag);
+      for (const [k, v] of Object.entries(attrs)) {
+        if (v === null || v === undefined || v === false) continue;
+        if (k === "class") n.className = v;
+        else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+        else n.setAttribute(k, v === true ? "" : String(v));
+      }
+      for (const c of kids.flat()) {
+        if (c === null || c === undefined || c === false) continue;
+        n.append(c instanceof Node ? c : document.createTextNode(String(c)));
+      }
+      return n;
+    }
+
+    async function boot() {
+      const cfg = await api("/api/config");
+      S.me = (await api("/api/me")).user;
+      if (!S.me) {
+        $("#side").replaceChildren(el("p", {}, "Sign in on the main page first."), el("a", { href: "/" }, "Go to sign-in"));
+        $("#main").replaceChildren();
+        return;
+      }
+      $("#who").replaceChildren(`${S.me.role === "approver" ? "Approver" : "Drafter"} · `, el("a", { href: "/" }, "Events page"));
+      S.agents = await api("/api/agents");
+      S.agent = S.agents[0];
+      S.type = Object.keys(S.agent.recordTypes)[0];
+      await loadAgent();
+    }
+
+    async function loadAgent() {
+      const id = S.agent.id;
+      const [summary, records, items] = await Promise.all([
+        api(`/api/agents/${id}/summary`), api(`/api/agents/${id}/records`), api(`/api/agents/${id}/items`),
+      ]);
+      S.summary = summary; S.records = records; S.items = items;
+      render();
+    }
+
+    function render() {
+      $("#side").replaceChildren(el("h2", {}, "Agents"), ...S.agents.map((a) => el("button", {
+        class: `agent-btn${a.id === S.agent.id ? " active" : ""}`,
+        onclick: () => { S.agent = a; S.tab = "summary"; S.type = Object.keys(a.recordTypes)[0]; S.selItem = null; S.notice = null; loadAgent(); },
+      }, a.name)));
+
+      const tabs = [["summary", "Summary"], ["records", "Records"], ["review", `Review (${S.items.filter((i) => i.status !== "done" && i.status !== "rejected").length})`], ["actions", "Actions"]];
+      const tabBar = el("div", { class: "tabs" }, tabs.map(([k, label]) => el("button", { class: S.tab === k ? "active" : "", onclick: () => { S.tab = k; S.notice = null; render(); } }, label)));
+      const body = S.tab === "summary" ? summaryView() : S.tab === "records" ? recordsView() : S.tab === "review" ? reviewView() : actionsView();
+      const notice = S.notice ? el("div", { class: `notice ${S.notice.kind}` }, S.notice.text) : null;
+      $("#main").replaceChildren(el("h2", { style: "margin:0 0 4px" }, S.agent.name), el("p", { class: "muted", style: "margin:0 0 12px" }, S.agent.summary), tabBar, ...[notice, body].filter(Boolean));
+    }
+
+    function note(text, kind = "ok") { S.notice = { text, kind }; render(); }
+
+    async function act(fn, okText) {
+      try {
+        const out = await fn();
+        if (okText) S.notice = { text: okText, kind: "ok" };
+        await loadAgent();
+        return out;
+      } catch (err) {
+        S.notice = { text: err.message, kind: "error" };
+        render();
+      }
+    }
+
+    function summaryView() {
+      return el("div", {}, (S.summary.sections || []).map((section) => el("div", { class: "section" },
+        el("h3", {}, section.heading),
+        section.rows.length === 0 ? el("p", { class: "muted" }, "Nothing here.") : section.rows.map((row) => el("div", { class: "row-item" },
+          el("div", {}, row.label), el("div", { class: "muted" }, row.detail || ""))))));
+    }
+
+    function recordsView() {
+      const types = Object.entries(S.agent.recordTypes);
+      const def = S.agent.recordTypes[S.type];
+      const rows = S.records.filter((r) => r.type === S.type);
+      const typeTabs = el("div", { class: "tabs" }, types.map(([k, t]) => el("button", { class: S.type === k ? "active" : "", onclick: () => { S.type = k; S.selRecord = null; render(); } }, t.label)));
+      return el("div", {}, typeTabs,
+        el("details", {}, el("summary", {}, `Add ${def.label.toLowerCase()}`), recordForm(def)),
+        rows.length === 0 ? el("p", { class: "muted" }, "No records yet.") : el("div", { class: "table-wrap" }, el("table", {},
+          el("thead", {}, el("tr", {}, el("th", {}, "Record ID"), def.fields.slice(0, 4).map((f) => el("th", {}, f.label.split("(")[0].trim())))),
+          el("tbody", {}, rows.map((r) => el("tr", {}, el("td", { style: "font-family:ui-monospace,monospace;font-size:12px" }, r.id), def.fields.slice(0, 4).map((f) => el("td", {}, f.type === "bool" ? (r[f.name] ? "Yes" : "No") : String(r[f.name] ?? "")))))))),
+        el("p", { class: "muted" }, "Record IDs are needed when you draft from a record. Records with an issued receipt cannot be changed."));
+    }
+
+    function recordForm(def) {
+      const form = el("form", {});
+      for (const f of def.fields) {
+        let input;
+        if (f.type === "textarea") input = el("textarea", { name: f.name, rows: "3" });
+        else if (f.type === "select") input = el("select", { name: f.name }, [el("option", { value: "" }, "Choose"), ...f.options.map((o) => el("option", { value: o }, o))]);
+        else if (f.type === "bool") input = el("select", { name: f.name }, [el("option", { value: "false" }, "No"), el("option", { value: "true" }, "Yes")]);
+        else if (f.type === "date") input = el("input", { type: "text", name: f.name, placeholder: "YYYY-MM-DD", required: f.required || null });
+        else if (f.type === "number") input = el("input", { type: "number", step: "any", name: f.name, required: f.required || null });
+        else input = el("input", { type: "text", name: f.name, required: f.required || null });
+        form.append(el("label", {}, f.label, input));
+      }
+      form.append(el("div", { class: "actions" }, el("button", { type: "submit", class: "primary" }, "Save")));
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const body = Object.fromEntries(new FormData(form));
+        act(() => api(`/api/agents/${S.agent.id}/records/${S.type}`, { method: "POST", body }), "Saved.");
+      });
+      return form;
+    }
+
+    function reviewView() {
+      const items = S.items;
+      const sel = items.find((i) => i.id === S.selItem);
+      return el("div", { class: "grid" },
+        el("div", {}, items.length === 0 ? el("p", { class: "muted" }, "No drafts yet. Draft one from a record in the Records tab.") : el("div", { class: "table-wrap" }, el("table", {},
+          el("thead", {}, el("tr", {}, el("th", {}, "Item"), el("th", {}, "Status"))),
+          el("tbody", {}, items.map((i) => el("tr", { class: `row${i.id === S.selItem ? " sel" : ""}`, onclick: () => { S.selItem = i.id; render(); } },
+            el("td", {}, i.subject || i.kind), el("td", {}, el("span", { class: `badge ${i.status}` }, i.status)))))))),
+        sel ? itemDetail(sel) : el("p", { class: "muted" }, "Select an item to review it."));
+    }
+
+    function itemDetail(i) {
+      const approver = S.me.role === "approver";
+      return el("div", { class: "box" },
+        el("strong", {}, i.subject || i.kind),
+        el("div", { class: "muted" }, `${i.kind} · ${i.status}${i.createdBy ? ` · by ${i.createdBy}` : ""}`),
+        el("div", { class: "body", style: "margin-top:8px" }, i.body),
+        i.unverified && i.unverified.length ? el("div", { class: "notice" }, el("strong", {}, "Confirm before approving"), el("ul", {}, i.unverified.map((u) => el("li", {}, u)))) : null,
+        i.result && i.result.recipientCount !== undefined ? el("div", { class: "notice ok" }, `Sent to ${i.result.recipientCount} people (simulated, nothing was emailed).`) : null,
+        approver && i.status === "pending" ? el("details", { style: "margin-top:10px" }, el("summary", {}, "Edit before approving"),
+          el("label", {}, "Subject", el("input", { type: "text", id: "e-sub", value: i.subject || "" })),
+          el("label", {}, "Body", el("textarea", { id: "e-body", rows: "8" }, i.body)),
+          el("div", { class: "actions" }, el("button", { onclick: () => act(() => api(`/api/items/${i.id}`, { method: "PUT", body: { subject: $("#e-sub").value, body: $("#e-body").value } }), "Saved.") }, "Save changes"))) : null,
+        approver && i.status === "pending" ? el("div", { class: "actions" },
+          el("button", { class: "primary", onclick: () => act(() => api(`/api/items/${i.id}/approve`, { method: "POST", body: { note: "" } }), "Approved. Nothing was sent.") }, "Approve"),
+          el("button", { onclick: () => act(() => api(`/api/items/${i.id}/reject`, { method: "POST", body: { note: "" } }), "Rejected.") }, "Reject")) : null,
+        approver && i.status === "approved" && i.completion ? el("div", { class: "box" },
+          el("strong", {}, i.completion.label),
+          el("label", { style: "margin-top:8px" }, `Type ${i.completion.word} to confirm`, el("input", { type: "text", id: "c-word", autocomplete: "off" })),
+          el("div", { class: "actions" }, el("button", { class: "primary", onclick: () => act(() => api(`/api/items/${i.id}/complete`, { method: "POST", body: { confirm: $("#c-word").value } }), "Done.") }, i.completion.label))) : null,
+        el("div", { class: "muted", style: "margin-top:10px" }, "Approving does not send. Completion needs the typed word."));
+    }
+
+    function actionsView() {
+      const acts = Object.entries(S.agent.actions || {});
+      const approver = S.me.role === "approver";
+      const recordList = S.records.filter((r) => S.agent.recordTypes[r.type] && r.type !== undefined);
+      if (acts.length === 0) return el("div", {}, el("p", { class: "muted" }, "This agent has no direct actions. Use Review to approve and complete drafts."), draftPanel(recordList));
+      return el("div", {}, acts.map(([key, a]) => el("div", { class: "box" },
+        el("strong", {}, a.label),
+        el("label", { style: "margin-top:8px" }, "Record ID", el("input", { type: "text", id: `rec-${key}`, placeholder: "Paste the record ID" })),
+        el("div", { class: "actions" }, el("button", {
+          disabled: a.role === "approver" && !approver ? true : null,
+          onclick: () => act(async () => {
+            const out = await api(`/api/agents/${S.agent.id}/actions/${key}`, { method: "POST", body: { recordId: $(`#rec-${key}`).value } });
+            if (out.receipt) S.notice = { text: `Receipt ${out.receipt.number} numbered. Issue it to ${out.receipt.donor} with the official wording.`, kind: "ok" };
+            return out;
+          }),
+        }, a.label)))), draftPanel(recordList));
+    }
+
+    function draftPanel(recordList) {
+      const kinds = Object.entries(S.agent.draftKinds || {});
+      if (kinds.length === 0) return el("div", {});
+      const id = el("input", { type: "text", id: "draft-record", placeholder: "Record ID" });
+      const kindSel = el("select", { id: "draft-kind" }, kinds.map(([k, d]) => el("option", { value: k }, d.label)));
+      return el("div", { class: "box" },
+        el("strong", {}, "Draft from a record"),
+        el("p", { class: "muted" }, "Record IDs appear in the Records tab once a record is saved (use the table, or ask for the ID)."),
+        el("label", {}, "Draft type", kindSel), el("label", {}, "Record ID", id),
+        el("div", { class: "actions" }, el("button", { class: "primary", onclick: () => act(() => api(`/api/agents/${S.agent.id}/draft`, { method: "POST", body: { kind: $("#draft-kind").value, recordId: $("#draft-record").value } }), "Draft created. Review it in the Review tab.") }, "Create draft")),
+        recordList.length ? el("p", { class: "muted" }, `${recordList.length} record(s) saved for this agent.`) : null);
+    }
+
+    boot().catch((err) => { $("#main").replaceChildren(el("p", { class: "notice error" }, err.message)); });
+  </script>
+</body>
+</html>
