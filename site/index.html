@@ -60,7 +60,14 @@
     .card { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 24px; }
     .card .icon { font-size: 28px; margin-bottom: 10px; }
     .card p { color: var(--muted); font-size: 15px; margin-bottom: 0; }
-    .card .demo-link { margin-top: 14px; font-size: 15px; }
+    .watch { margin-top: 16px; font: inherit; font-size: 15px; font-weight: 600; color: var(--brand); background: var(--soft); border: 1px solid var(--line); border-radius: 999px; padding: 9px 18px; cursor: pointer; }
+    .watch:hover { border-color: var(--brand); }
+    dialog.watch-dialog { width: min(900px, 94vw); border: 0; border-radius: 20px; padding: 0; background: #111820; color: #fff; }
+    dialog.watch-dialog::backdrop { background: rgba(17, 24, 32, .7); }
+    dialog.watch-dialog video { display: block; width: 100%; height: auto; border-radius: 20px 20px 0 0; background: #000; }
+    dialog.watch-dialog form { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 18px; font-size: 15px; }
+    dialog.watch-dialog p { margin: 0; color: #d9e2dd; }
+    dialog.watch-dialog button { font: inherit; font-weight: 600; background: transparent; color: #fff; border: 1px solid #5d6a64; border-radius: 999px; padding: 8px 16px; cursor: pointer; }
     .split { display: grid; gap: 28px; grid-template-columns: 1fr; align-items: start; }
     @media (min-width: 900px) { .split { grid-template-columns: 1fr 1fr; } }
     .checks { list-style: none; padding: 0; margin: 0; }
@@ -155,14 +162,14 @@
         <h2>Eight agents for the work that piles up.</h2>
         <p class="lead">Turn on the ones you need. They share one workspace, one review queue, and one audit log.</p>
         <div class="grid">
-          <div class="card"><div class="icon">📅</div><h3>Events and engagement</h3><p>Paste your newsletter's events and confirm them. Then drafts for reminders, follow-ups, and social posts.</p></div>
-          <div class="card"><div class="icon">🧾</div><h3>Donor receipts and stewardship</h3><p>Checks receipt fields, numbers receipts in order, and drafts thank-you and re-engagement emails for donors who agreed to hear from you.</p><p class="demo-link"><a href="videos/donor-receipts.mp4">Watch a demo (fictional food bank)</a></p></div>
-          <div class="card"><div class="icon">🏛️</div><h3>Grant tracking</h3><p>A funder calendar with deadlines, plus drafts of application sections and progress reports built only from the results you enter.</p></div>
-          <div class="card"><div class="icon">🤝</div><h3>Volunteer coordination</h3><p>Roster, screening status, and hours. Flags shifts that need cleared volunteers, and drafts calls and welcome notes.</p><p class="demo-link"><a href="videos/volunteers.mp4">Watch a demo (fictional food bank)</a></p></div>
-          <div class="card"><div class="icon">✉️</div><h3>Newsletter and communications</h3><p>Drafts your newsletter and social posts from your updates. Sends only to people who consented, with an unsubscribe line.</p></div>
-          <div class="card"><div class="icon">🗓️</div><h3>Compliance calendar</h3><p>Tracks the filings and renewals you enter, shows what is overdue, drafts reminders, and repeats yearly items.</p><p class="demo-link"><a href="videos/compliance.mp4">Watch a demo (fictional food bank)</a></p></div>
-          <div class="card"><div class="icon">📋</div><h3>Board and governance</h3><p>Drafts agendas and minutes from your meeting notes. Minutes record only the motions in the notes, and the board approves them.</p></div>
-          <div class="card"><div class="icon">🪪</div><h3>Membership renewals</h3><p>Shows who is renewing soon and who has lapsed, and drafts renewal reminders for members who agreed to email.</p></div>
+          <div class="card"><div class="icon">📅</div><h3>Events and engagement</h3><p>Paste your newsletter's events and confirm them. Then drafts for reminders, follow-ups, and social posts.</p><button class="watch" type="button" data-video="videos/events.mp4" data-title="Events and engagement">Watch me work</button></div>
+          <div class="card"><div class="icon">🧾</div><h3>Donor receipts and stewardship</h3><p>Checks receipt fields, numbers receipts in order, and drafts thank-you and re-engagement emails for donors who agreed to hear from you.</p><button class="watch" type="button" data-video="videos/donor-receipts.mp4" data-title="Donor receipts and stewardship">Watch me work</button></div>
+          <div class="card"><div class="icon">🏛️</div><h3>Grant tracking</h3><p>A funder calendar with deadlines, plus drafts of application sections and progress reports built only from the results you enter.</p><button class="watch" type="button" data-video="videos/grants.mp4" data-title="Grant tracking">Watch me work</button></div>
+          <div class="card"><div class="icon">🤝</div><h3>Volunteer coordination</h3><p>Roster, screening status, and hours. Flags shifts that need cleared volunteers, and drafts calls and welcome notes.</p><button class="watch" type="button" data-video="videos/volunteers.mp4" data-title="Volunteer coordination">Watch me work</button></div>
+          <div class="card"><div class="icon">✉️</div><h3>Newsletter and communications</h3><p>Drafts your newsletter and social posts from your updates. Sends only to people who consented, with an unsubscribe line.</p><button class="watch" type="button" data-video="videos/newsletter.mp4" data-title="Newsletter and communications">Watch me work</button></div>
+          <div class="card"><div class="icon">🗓️</div><h3>Compliance calendar</h3><p>Tracks the filings and renewals you enter, shows what is overdue, drafts reminders, and repeats yearly items.</p><button class="watch" type="button" data-video="videos/compliance.mp4" data-title="Compliance calendar">Watch me work</button></div>
+          <div class="card"><div class="icon">📋</div><h3>Board and governance</h3><p>Drafts agendas and minutes from your meeting notes. Minutes record only the motions in the notes, and the board approves them.</p><button class="watch" type="button" data-video="videos/governance.mp4" data-title="Board and governance">Watch me work</button></div>
+          <div class="card"><div class="icon">🪪</div><h3>Membership renewals</h3><p>Shows who is renewing soon and who has lapsed, and drafts renewal reminders for members who agreed to email.</p><button class="watch" type="button" data-video="videos/renewals.mp4" data-title="Membership renewals">Watch me work</button></div>
           <div class="card"><div class="icon">🔐</div><h3>One shared workspace</h3><p>One workspace for your team, with drafter and approver roles and an audit log of every draft, approval, and send.</p></div>
         </div>
       </div>
@@ -250,5 +257,31 @@
       </div>
     </div>
   </footer>
+  <dialog id="watch" class="watch-dialog" aria-label="Agent demo">
+    <video id="watch-video" controls playsinline preload="metadata"></video>
+    <form method="dialog">
+      <p>Fictional food bank demo. Nothing is sent.</p>
+      <button value="close">Close</button>
+    </form>
+  </dialog>
+  <script>
+    (function () {
+      var dialog = document.getElementById("watch");
+      var video = document.getElementById("watch-video");
+      document.querySelectorAll("[data-video]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          dialog.setAttribute("aria-label", "Demo: " + button.dataset.title);
+          video.src = button.dataset.video;
+          dialog.showModal();
+          video.play().catch(function () {});
+        });
+      });
+      dialog.addEventListener("close", function () {
+        video.pause();
+        video.removeAttribute("src");
+        video.load();
+      });
+    })();
+  </script>
 </body>
 </html>
